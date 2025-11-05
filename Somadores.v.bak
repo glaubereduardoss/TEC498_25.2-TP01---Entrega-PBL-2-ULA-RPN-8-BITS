@@ -1,0 +1,42 @@
+module A_halfadder(output Co,S, input A,B);
+	//Sum
+	xor (S, A,B);
+	//Carry out
+	and (Co, A,B);
+endmodule
+
+module A_fulladder(output Co,S, input A,B,Ci);
+	//Wires
+	wire AxorB, AandB, CinAxorB;
+	
+	//Sum
+	xor ouex0(AxorB,A,B);
+	xor ouex1(S,AxorB,Ci);
+	
+	//Carry out
+	and e0(AandB, A, B);
+	and e1(CinAxorB, Ci, AxorB);
+	or ou0(Co, AandB, CinAxorB);
+	
+endmodule
+
+module A_4Bits_fulladder(output[3:0] S, output Co, input[3:0] A,B, input Ci);
+	
+	//Wires to connect carry in on carry out
+	wire c1,c2,c3;
+	
+	//First bit(column)
+	A_fulladder full1(c1, S[0], A[0], B[0], Ci);
+	//Second bit(column)
+	A_fulladder full2(c2, S[1], A[1], B[1], c1);
+	//Third bit(column)
+	A_fulladder full3(c3, S[2], A[2], B[2], c2);
+	//Fourth bit(column)
+	A_fulladder full4(Co, S[3], A[3], B[3], c3);
+endmodule
+
+module A_8bits_fulladder(output [7:0] S, output Co, input[7:0] A, B, input Ci);
+	wire c0;
+	A_4Bits_fulladder fullad1(S[3:0], c0, A[3:0], B[3:0], Ci);
+	A_4Bits_fulladder fullad2(S[7:4], Co, A[7:4], B[7:4], c0);
+endmodule

@@ -1,0 +1,390 @@
+// ============================================================================
+// MÓDULO MULTIPLICADOR 8x8 
+// ============================================================================
+module multiplicador_8x8(
+    // --- Entradas Físicas da Placa DE10-Lite ---
+    input  wire        clk,
+    input  wire        reset,
+    input  wire        start,
+    input  wire [7:0]  A,
+    input  wire [7:0]  B,
+    
+    // --- Saídas para a Placa ---
+    output wire [15:0] out,
+    output wire        busy,
+    output wire        done
+);
+    wire [15:0] acc, acc_next;
+    wire [7:0]  count;
+    wire        carry;
+    wire        enable_logic;
+    wire        not_done;
+
+    // --- Lógica de Controle ---
+    not u_not_done (not_done, done);
+    and u_is_busy (enable_logic, start, not_done);
+    
+    buffer_1bit u_busy_led (.in(enable_logic), .out(busy));
+
+    // --- Contador Síncrono de 8 bits ---
+    contador_sincrono_8bit ctr(
+        .clk(clk),
+        .en(enable_logic),
+        .reset(reset),
+        .q(count)
+    );
+
+    // --- Comparador para parar quando count == B ---
+    comparador_8bit cmp(
+        .equal(done),
+        .A(count),
+        .B(B)
+    );
+
+    // --- Somador de 16 bits: acc_next = acc + A ---
+    sum16bit u_sum(
+        .A(acc),
+        .B({8'b0, A}),
+        .S(acc_next),
+        .Cout(carry)
+    );
+
+    // --- Registrador de acumulador (16 bits) síncrono ---
+    register_16bit reg_acc(
+        .clk(clk),
+        .en(enable_logic),
+        .reset(reset),
+        .d(acc_next),
+        .q(acc)
+    );
+
+    // --- Registrador de Saída (16 bits) síncrono ---
+    register_16bit reg_out(
+        .clk(clk),
+        .en(done),
+        .reset(reset),
+        .d(acc),
+        .q(out)
+    );
+endmodule
+
+// ============================================================================
+// SEÇÃO 1: BLOCOS DE CONSTRUÇÃO FUNDAMENTAIS
+// ============================================================================
+
+module d_flip_flop_with_reset(
+    input  wire clk,
+    input  wire reset,
+    input  wire d,
+    output reg  q
+);
+    always @(posedge clk or posedge reset) begin
+        if (reset) begin
+            q <= 1'b0;
+        end else begin
+            q <= d;
+        end
+    end
+endmodule
+
+module buffer_1bit(
+    input  wire in,
+    output wire out
+);
+    wire temp_inv;
+    not u_inv1(temp_inv, in);
+    not u_inv2(out, temp_inv);
+endmodule
+
+module Mux1Bit (
+    input  wire sel,
+    input  wire X,
+    input  wire Y,
+    output wire S
+);
+    wire nsel, term1, term2;
+    not u_inv (nsel, sel);
+    and u_and1 (term1, X, nsel);
+    and u_and2 (term2, Y, sel);
+    or  u_or1 (S, term1, term2);
+endmodule
+
+// ============================================================================
+// SEÇÃO 2: MULTIPLEXADORES E COMPARADORES
+// ============================================================================
+
+module Mux4Bit(
+    input  wire       sel,
+    input  wire [3:0] X,
+    input  wire [3:0] Y,
+    output wire [3:0] S
+);
+    Mux1Bit mux0 (.sel(sel), .X(X[0]), .Y(Y[0]), .S(S[0]));
+    Mux1Bit mux1 (.sel(sel), .X(X[1]), .Y(Y[1]), .S(S[1]));
+    Mux1Bit mux2 (.sel(sel), .X(X[2]), .Y(Y[2]), .S(S[2]));
+    Mux1Bit mux3 (.sel(sel), .X(X[3]), .Y(Y[3]), .S(S[3]));
+endmodule
+
+module Mux8Bit(
+    input  wire       sel,
+    input  wire [7:0] X,
+    input  wire [7:0] Y,
+    output wire [7:0] S
+);
+    Mux1Bit mux0 (.sel(sel), .X(X[0]), .Y(Y[0]), .S(S[0]));
+    Mux1Bit mux1 (.sel(sel), .X(X[1]), .Y(Y[1]), .S(S[1]));
+    Mux1Bit mux2 (.sel(sel), .X(X[2]), .Y(Y[2]), .S(S[2]));
+    Mux1Bit mux3 (.sel(sel), .X(X[3]), .Y(Y[3]), .S(S[3]));
+    Mux1Bit mux4 (.sel(sel), .X(X[4]), .Y(Y[4]), .S(S[4]));
+    Mux1Bit mux5 (.sel(sel), .X(X[5]), .Y(Y[5]), .S(S[5]));
+    Mux1Bit mux6 (.sel(sel), .X(X[6]), .Y(Y[6]), .S(S[6]));
+    Mux1Bit mux7 (.sel(sel), .X(X[7]), .Y(Y[7]), .S(S[7]));
+endmodule
+
+module comparador_4bit (
+    output wire equal,
+    input  wire [3:0] A,
+    input  wire [3:0] B
+);
+    wire [3:0] xnor_bits;
+    xnor (xnor_bits[0], A[0], B[0]);
+    xnor (xnor_bits[1], A[1], B[1]);
+    xnor (xnor_bits[2], A[2], B[2]);
+    xnor (xnor_bits[3], A[3], B[3]);
+    and (equal, xnor_bits[0], xnor_bits[1], xnor_bits[2], xnor_bits[3]);
+endmodule
+
+module comparador_8bit (
+    output wire equal,
+    input  wire [7:0] A,
+    input  wire [7:0] B
+);
+    wire [7:0] xnor_bits;
+    wire eq_low, eq_high;
+    
+    xnor (xnor_bits[0], A[0], B[0]);
+    xnor (xnor_bits[1], A[1], B[1]);
+    xnor (xnor_bits[2], A[2], B[2]);
+    xnor (xnor_bits[3], A[3], B[3]);
+    xnor (xnor_bits[4], A[4], B[4]);
+    xnor (xnor_bits[5], A[5], B[5]);
+    xnor (xnor_bits[6], A[6], B[6]);
+    xnor (xnor_bits[7], A[7], B[7]);
+    
+    and (eq_low, xnor_bits[0], xnor_bits[1], xnor_bits[2], xnor_bits[3]);
+    and (eq_high, xnor_bits[4], xnor_bits[5], xnor_bits[6], xnor_bits[7]);
+    and (equal, eq_low, eq_high);
+endmodule
+
+// ============================================================================
+// SEÇÃO 3: SOMADORES
+// ============================================================================
+
+module sum(Cout, S, A, B, C);
+    input A, B, C;
+    output Cout, S;
+    wire f1, f2, f3;
+    xor (f1, A, B);
+    xor (S, C, f1);
+    and (f2, A, B);
+    and (f3, f1, C);
+    or (Cout, f3, f2);
+endmodule
+
+module sum4bit(Cout, S, A, B, C); 
+    input [3:0]A; 
+    input [3:0]B; 
+    input C;
+    output Cout; 
+    output [3:0]S; 
+    wire [2:0]Co; 
+    sum somador1(Co[0], S[0], A[0], B[0], C); 
+    sum somador2(Co[1], S[1], A[1], B[1], Co[0]); 
+    sum somador3(Co[2], S[2], A[2], B[2], Co[1]); 
+    sum somador4(Cout, S[3], A[3], B[3], Co[2]); 
+endmodule
+
+module sum8bit(Cout, S, A, B);
+    input [7:0]A;
+    input [7:0]B;
+    output Cout;
+    output [7:0]S;
+    wire [6:0]Co;
+    sum somador1(Co[0], S[0], A[0], B[0], 1'b0);
+    sum somador2(Co[1], S[1], A[1], B[1], Co[0]);
+    sum somador3(Co[2], S[2], A[2], B[2], Co[1]);
+    sum somador4(Co[3], S[3], A[3], B[3], Co[2]);
+    sum somador5(Co[4], S[4], A[4], B[4], Co[3]);
+    sum somador6(Co[5], S[5], A[5], B[5], Co[4]);
+    sum somador7(Co[6], S[6], A[6], B[6], Co[5]);
+    sum somador8(Cout, S[7], A[7], B[7], Co[6]);
+endmodule
+
+module sum16bit(Cout, S, A, B);
+    input [15:0]A;
+    input [15:0]B;
+    output Cout;
+    output [15:0]S;
+    wire [14:0]Co;
+    
+    sum somador1(Co[0], S[0], A[0], B[0], 1'b0);
+    sum somador2(Co[1], S[1], A[1], B[1], Co[0]);
+    sum somador3(Co[2], S[2], A[2], B[2], Co[1]);
+    sum somador4(Co[3], S[3], A[3], B[3], Co[2]);
+    sum somador5(Co[4], S[4], A[4], B[4], Co[3]);
+    sum somador6(Co[5], S[5], A[5], B[5], Co[4]);
+    sum somador7(Co[6], S[6], A[6], B[6], Co[5]);
+    sum somador8(Co[7], S[7], A[7], B[7], Co[6]);
+    sum somador9(Co[8], S[8], A[8], B[8], Co[7]);
+    sum somador10(Co[9], S[9], A[9], B[9], Co[8]);
+    sum somador11(Co[10], S[10], A[10], B[10], Co[9]);
+    sum somador12(Co[11], S[11], A[11], B[11], Co[10]);
+    sum somador13(Co[12], S[12], A[12], B[12], Co[11]);
+    sum somador14(Co[13], S[13], A[13], B[13], Co[12]);
+    sum somador15(Co[14], S[14], A[14], B[14], Co[13]);
+    sum somador16(Cout, S[15], A[15], B[15], Co[14]);
+endmodule
+
+// ============================================================================
+// SEÇÃO 4: FLIP-FLOPS E REGISTRADORES
+// ============================================================================
+
+module d_flip_flop_with_enable_and_reset(
+    input  wire clk,
+    input  wire reset,
+    input  wire load,
+    input  wire d,
+    output wire q
+);
+    wire d_mux_out;
+    wire q_feedback;
+    Mux1Bit u_mux_enable ( .sel(load), .X(q_feedback), .Y(d), .S(d_mux_out) );
+    d_flip_flop_with_reset u_dff ( .clk(clk), .reset(reset), .d(d_mux_out), .q(q) );
+    buffer_1bit u_feedback_buffer (.in(q), .out(q_feedback));
+endmodule
+
+module register_4bit(
+    input  wire       clk,
+    input  wire       en,
+    input  wire       reset,
+    input  wire [3:0] d,
+    output wire [3:0] q
+);
+    d_flip_flop_with_enable_and_reset ff0 (.clk(clk), .reset(reset), .load(en), .d(d[0]), .q(q[0]));
+    d_flip_flop_with_enable_and_reset ff1 (.clk(clk), .reset(reset), .load(en), .d(d[1]), .q(q[1]));
+    d_flip_flop_with_enable_and_reset ff2 (.clk(clk), .reset(reset), .load(en), .d(d[2]), .q(q[2]));
+    d_flip_flop_with_enable_and_reset ff3 (.clk(clk), .reset(reset), .load(en), .d(d[3]), .q(q[3]));
+endmodule
+
+module register_8bit(
+    input  wire       clk,
+    input  wire       en,
+    input  wire       reset,
+    input  wire [7:0] d,
+    output wire [7:0] q
+);
+    d_flip_flop_with_enable_and_reset ff0 (.clk(clk), .reset(reset), .load(en), .d(d[0]), .q(q[0]));
+    d_flip_flop_with_enable_and_reset ff1 (.clk(clk), .reset(reset), .load(en), .d(d[1]), .q(q[1]));
+    d_flip_flop_with_enable_and_reset ff2 (.clk(clk), .reset(reset), .load(en), .d(d[2]), .q(q[2]));
+    d_flip_flop_with_enable_and_reset ff3 (.clk(clk), .reset(reset), .load(en), .d(d[3]), .q(q[3]));
+    d_flip_flop_with_enable_and_reset ff4 (.clk(clk), .reset(reset), .load(en), .d(d[4]), .q(q[4]));
+    d_flip_flop_with_enable_and_reset ff5 (.clk(clk), .reset(reset), .load(en), .d(d[5]), .q(q[5]));
+    d_flip_flop_with_enable_and_reset ff6 (.clk(clk), .reset(reset), .load(en), .d(d[6]), .q(q[6]));
+    d_flip_flop_with_enable_and_reset ff7 (.clk(clk), .reset(reset), .load(en), .d(d[7]), .q(q[7]));
+endmodule
+
+module register_16bit(
+    input  wire        clk,
+    input  wire        en,
+    input  wire        reset,
+    input  wire [15:0] d,
+    output wire [15:0] q
+);
+    d_flip_flop_with_enable_and_reset ff0 (.clk(clk), .reset(reset), .load(en), .d(d[0]), .q(q[0]));
+    d_flip_flop_with_enable_and_reset ff1 (.clk(clk), .reset(reset), .load(en), .d(d[1]), .q(q[1]));
+    d_flip_flop_with_enable_and_reset ff2 (.clk(clk), .reset(reset), .load(en), .d(d[2]), .q(q[2]));
+    d_flip_flop_with_enable_and_reset ff3 (.clk(clk), .reset(reset), .load(en), .d(d[3]), .q(q[3]));
+    d_flip_flop_with_enable_and_reset ff4 (.clk(clk), .reset(reset), .load(en), .d(d[4]), .q(q[4]));
+    d_flip_flop_with_enable_and_reset ff5 (.clk(clk), .reset(reset), .load(en), .d(d[5]), .q(q[5]));
+    d_flip_flop_with_enable_and_reset ff6 (.clk(clk), .reset(reset), .load(en), .d(d[6]), .q(q[6]));
+    d_flip_flop_with_enable_and_reset ff7 (.clk(clk), .reset(reset), .load(en), .d(d[7]), .q(q[7]));
+    d_flip_flop_with_enable_and_reset ff8 (.clk(clk), .reset(reset), .load(en), .d(d[8]), .q(q[8]));
+    d_flip_flop_with_enable_and_reset ff9 (.clk(clk), .reset(reset), .load(en), .d(d[9]), .q(q[9]));
+    d_flip_flop_with_enable_and_reset ff10 (.clk(clk), .reset(reset), .load(en), .d(d[10]), .q(q[10]));
+    d_flip_flop_with_enable_and_reset ff11 (.clk(clk), .reset(reset), .load(en), .d(d[11]), .q(q[11]));
+    d_flip_flop_with_enable_and_reset ff12 (.clk(clk), .reset(reset), .load(en), .d(d[12]), .q(q[12]));
+    d_flip_flop_with_enable_and_reset ff13 (.clk(clk), .reset(reset), .load(en), .d(d[13]), .q(q[13]));
+    d_flip_flop_with_enable_and_reset ff14 (.clk(clk), .reset(reset), .load(en), .d(d[14]), .q(q[14]));
+    d_flip_flop_with_enable_and_reset ff15 (.clk(clk), .reset(reset), .load(en), .d(d[15]), .q(q[15]));
+endmodule
+
+// ============================================================================
+// SEÇÃO 5: CONTADORES
+// ============================================================================
+
+module contador_sincrono_4bit(
+    input  wire       clk,
+    input  wire       en,
+    input  wire       reset,
+    output wire [3:0] q
+);
+    wire [3:0] count_plus_1;
+    wire       carry_out;
+    wire [3:0] next_count;
+
+    sum4bit u_incrementador(
+        .A(q),
+        .B(4'b0001),
+        .C(1'b0),
+        .S(count_plus_1),
+        .Cout(carry_out)
+    );
+
+    Mux4Bit u_mux_enable(
+        .sel(en),
+        .X(q),
+        .Y(count_plus_1),
+        .S(next_count)
+    );
+
+    register_4bit u_reg_count(
+        .clk(clk),
+        .en(1'b1),
+        .reset(reset),
+        .d(next_count),
+        .q(q)
+    );
+endmodule
+
+module contador_sincrono_8bit(
+    input  wire       clk,
+    input  wire       en,
+    input  wire       reset,
+    output wire [7:0] q
+);
+    wire [7:0] count_plus_1;
+    wire       carry_out;
+    wire [7:0] next_count;
+
+    sum8bit u_incrementador(
+        .A(q),
+        .B(8'b00000001),
+        .S(count_plus_1),
+        .Cout(carry_out)
+    );
+
+    Mux8Bit u_mux_enable(
+        .sel(en),
+        .X(q),
+        .Y(count_plus_1),
+        .S(next_count)
+    );
+
+    register_8bit u_reg_count(
+        .clk(clk),
+        .en(1'b1),
+        .reset(reset),
+        .d(next_count),
+        .q(q)
+    );
+endmodule
